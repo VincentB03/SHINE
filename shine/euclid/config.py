@@ -19,6 +19,7 @@ from shine.config import (
     PositionConfig,
     ShearConfig,
 )
+from shine.morphology.config import LearnedMorphologyConfig
 
 
 class EuclidDataConfig(BaseModel):
@@ -196,6 +197,9 @@ class EuclidInferenceConfig(BaseModel):
             sorted ascending (default ``[64, 128, 256]``).  Each source
             is assigned the smallest tier whose stamp can contain its
             light profile.  The FFT size for each tier is ``2 * stamp``.
+        learned_morphology: Optional AutoEncoder + Flow model replacing
+            the parametric renderer on one stamp tier (default None,
+            i.e. fully parametric, matching prior behavior).
         background: Background estimation strategy: "fit" estimates
             background jointly, "median" uses the median of the image,
             "fixed" uses a provided background map (default "median").
@@ -208,6 +212,7 @@ class EuclidInferenceConfig(BaseModel):
     gal: GalaxyConfig = Field(default_factory=_default_euclid_galaxy_config)
     inference: InferenceConfig = InferenceConfig()
     galaxy_stamp_sizes: List[int] = [64, 128, 256]
+    learned_morphology: Optional[LearnedMorphologyConfig] = None
     background: Literal["fit", "median", "fixed"] = "median"
     output_dir: str = "results/euclid"
 
@@ -236,5 +241,35 @@ class EuclidInferenceConfig(BaseModel):
         if v != sorted(v):
             raise ValueError(
                 f"galaxy_stamp_sizes must be sorted ascending, got {v}"
+            )
+        return v
+
+    @field_validator("learned_morphology")
+    @classmethod
+    def validate_learned_morphology_stamp_size(
+        cls, v: Optional[LearnedMorphologyConfig], info
+    ) -> Optional[LearnedMorphologyConfig]:
+        """Validate that ``apply_to_stamp_size`` is one of ``galaxy_stamp_sizes``.
+
+        Args:
+            v: The learned morphology config to validate (may be None).
+            info: Pydantic validation context, used to read the
+                already-validated ``galaxy_stamp_sizes`` field.
+
+        Returns:
+            The validated learned morphology config.
+
+        Raises:
+            ValueError: If ``apply_to_stamp_size`` is not a configured
+                stamp tier.
+        """
+        if v is None or not v.enabled:
+            return v
+        stamp_sizes = info.data.get("galaxy_stamp_sizes", [64, 128, 256])
+        if v.apply_to_stamp_size not in stamp_sizes:
+            raise ValueError(
+                f"learned_morphology.apply_to_stamp_size="
+                f"{v.apply_to_stamp_size} must be one of galaxy_stamp_sizes="
+                f"{stamp_sizes}"
             )
         return v

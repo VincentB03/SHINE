@@ -1,0 +1,82 @@
+# Euclid VIS multi-exposure shear inference — learned morphology test
+#
+# Identical to configs/euclid_vis.yaml except for the `learned_morphology:`
+# block: on the 64px tier, the AE decoder replaces galsim.Exponential and
+# the flow replaces the flux/hlr/e1/e2 priors (see MORPHOLOGY_AE_INTEGRATION.md).
+# The 128/256px tiers are untouched.
+#
+# `ae_checkpoint_dir` / `flow_checkpoint_dir` are the only fields that need
+# to change to point at a newly trained model — everything else in
+# shine/morphology/ is checkpoint-agnostic.
+
+data:
+  exposure_paths:
+    - data/EUC_VIS_SWL/EUC_VIS_SWL-DET-002704-00-1-0000000__20241017T042756.626122Z_3-4-F.fits.gz
+    - data/EUC_VIS_SWL/EUC_VIS_SWL-DET-002704-01-1-0000000__20241017T042805.678587Z_3-4-F.fits.gz
+    - data/EUC_VIS_SWL/EUC_VIS_SWL-DET-002704-02-1-0000000__20241017T042754.590559Z_3-4-F.fits.gz
+  psf_path: data/EUC_VIS_SWL/PSF_3-4-F.fits.gz
+  catalog_path: data/EUC_VIS_SWL/catalogue_3-4-F.fits.gz
+  background_paths:
+    - data/EUC_VIS_SWL/EUC_VIS_SWL-BKG-002704-00-1-0000000__20241017T042756.626186Z_3-4-F.fits.gz
+    - data/EUC_VIS_SWL/EUC_VIS_SWL-BKG-002704-01-1-0000000__20241017T042805.678757Z_3-4-F.fits.gz
+    - data/EUC_VIS_SWL/EUC_VIS_SWL-BKG-002704-02-1-0000000__20241017T042754.590644Z_3-4-F.fits.gz
+  quadrant: "3-4.F"
+  pixel_scale: 0.1
+
+sources:
+  min_snr: 10.0
+  require_vis_detected: true
+  exclude_spurious: true
+  exclude_deblended: false
+  exclude_point_sources: true
+  det_quality_exclude_mask: 0x78C
+  max_sources: 600
+
+# Galaxy model specification — still used for the 128/256px tiers, and for
+# the shear prior (g1/g2) which stays global and shared by all tiers.
+gal:
+  type: Exponential
+
+  shear:
+    type: G1G2
+    g1: {type: Normal, mean: 0.0, sigma: 0.05}
+    g2: {type: Normal, mean: 0.0, sigma: 0.05}
+
+  flux: {type: LogNormal, center: catalog, sigma: 0.5}
+  half_light_radius: {type: LogNormal, center: catalog, sigma: 0.3}
+
+  ellipticity:
+    type: E1E2
+    e1: {type: Normal, mean: 0.0, sigma: 0.3}
+    e2: {type: Normal, mean: 0.0, sigma: 0.3}
+
+  position:
+    type: Offset
+    dx: {type: Normal, mean: 0.0, sigma: 0.05}
+    dy: {type: Normal, mean: 0.0, sigma: 0.05}
+
+inference:
+  method: map
+  map_config:
+    enabled: true
+    num_steps: 200
+    learning_rate: 0.002
+  rng_seed: 42
+
+galaxy_stamp_sizes: [64, 128, 256]
+
+# AE trained on 64x64 stamps @ 0.1"/px (matches Euclid VIS pixel_scale
+# above); flow trained on that exact AE's latents (its own config.yaml
+# records ae_run_dir: Student-1_i1pf186a, ae_epoch: 2000).
+# NOTE: these are local, machine-specific paths (not committed / not LFS)
+# — swap them to point at wherever the current checkpoints live.
+learned_morphology:
+  enabled: true
+  ae_checkpoint_dir: /Users/vb287274/Desktop/wandb_weights/i1pf186a/epoch_2000
+  ae_epoch: 2000
+  flow_checkpoint_dir: /Users/vb287274/Desktop/wandb_weights/95f2vnu6/epoch_50
+  flow_epoch: 50
+  apply_to_stamp_size: 64
+
+background: fixed
+output_dir: results/euclid_learned

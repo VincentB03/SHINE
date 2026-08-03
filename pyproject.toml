@@ -33,6 +33,10 @@ dependencies = [
     "matplotlib>=3.7.0",
     "astropy>=5.0",
     "corner>=2.0.0",
+    "equinox>=0.11",
+    "flowjax",
+    "paramax",
+    "einops>=0.8",
 ]
 
 [project.optional-dependencies]
@@ -62,7 +66,7 @@ Repository = "https://github.com/CosmoStat/SHINE"
 Issues = "https://github.com/CosmoStat/SHINE/issues"
 
 [tool.setuptools]
-packages = ["shine", "shine.validation", "shine.euclid"]
+packages = ["shine", "shine.validation", "shine.euclid", "shine.morphology", "shine.morphology.nn"]
 
 [tool.setuptools_scm]
 write_to = "shine/_version.py"
