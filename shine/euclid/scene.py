@@ -23,6 +23,11 @@ import numpyro
 import numpyro.distributions as dist
 
 from shine.euclid.config import EuclidInferenceConfig
+from shine.morphology.galaxy_ae import GalaxyAutoEncoder
+from shine.morphology.loader import load_frozen_autoencoder, load_frozen_flow
+from shine.morphology.nn.flow import LatentFlow
+from shine.morphology.prior import sample_latent_codes
+from shine.morphology.render import render_learned_galaxy
 from shine.prior_utils import parse_prior
 
 logger = logging.getLogger(__name__)
@@ -68,12 +73,21 @@ def _render_tier(
     pixel_scale: float,
     tier_indices: list[jnp.ndarray],
     model_image: jnp.ndarray,
+    z: Optional[jnp.ndarray] = None,
+    ae: Optional[GalaxyAutoEncoder] = None,
+    learned_tier_idx: Optional[int] = None,
 ) -> jnp.ndarray:
     """Render one stamp-size tier for one exposure and scatter-add.
 
     Gathers sources belonging to this tier, renders them via
     ``jax.vmap`` at the tier's stamp/FFT size, and scatter-adds the
     resulting stamps onto ``model_image``.
+
+    If ``tier_idx == learned_tier_idx`` (only possible when the scene was
+    built with ``learned_morphology.enabled``), sources are rendered by
+    decoding ``z`` through the frozen AE (:func:`render_learned_galaxy`)
+    instead of the parametric ``flux``/``hlr``/``e1``/``e2`` path. Every
+    other tier is unaffected.
 
     Args:
         tier_idx: Index of this tier in the stamp-sizes list.
@@ -91,6 +105,13 @@ def _render_tier(
         pixel_scale: Pixel scale in arcsec/pixel.
         tier_indices: Pre-computed index arrays, one per tier.
         model_image: Accumulated model image to scatter-add onto.
+        z: Per-source AE latent codes, shape ``(n_sources, *latent_dim)``,
+            only meaningful on rows belonging to ``learned_tier_idx``.
+            ``None`` when learned morphology is disabled.
+        ae: Frozen AutoEncoder used to decode ``z`` on the learned tier.
+            ``None`` when learned morphology is disabled.
+        learned_tier_idx: Tier index that the learned-morphology path
+            applies to. ``None`` when learned morphology is disabled.
 
     Returns:
         Updated model image with this tier's contributions added.
@@ -104,11 +125,8 @@ def _render_tier(
         maximum_fft_size=fft_size, minimum_fft_size=fft_size
     )
 
-    # Gather per-source data for this tier and exposure
-    flux_t = flux[indices]
-    hlr_t = hlr[indices]
-    e1_t = e1[indices]
-    e2_t = e2[indices]
+    # Gather per-source data for this tier and exposure (shared by both
+    # the parametric and learned-morphology rendering paths).
     dx_t = dx[indices]
     dy_t = dy[indices]
     pos_t = data.pixel_positions[indices, exp_idx, :]
@@ -116,61 +134,91 @@ def _render_tier(
     psf_t = data.psf_images[indices, exp_idx, :, :]
     vis_t = data.source_visible[indices, exp_idx]
 
-    # Safe PSF fallback for invisible sources
-    psf_shape = psf_t.shape[-2:]
-    safe_psf = jnp.zeros(psf_shape)
-    safe_psf = safe_psf.at[psf_shape[0] // 2, psf_shape[1] // 2].set(1.0)
-
-    # Use default-argument capture to bind stamp_size and gsparams
-    # at definition time (Python loop is unrolled by JIT tracer).
-    def render_one_galaxy(
-        flux_i, hlr_i, e1_i, e2_i, dx_i, dy_i,
-        psf_img, wcs_params, pix_pos, visible_i,
-        _ss=stamp_size, _gsp=gsparams,
-    ):
-        v = visible_i
-        flux_i = jnp.where(v, flux_i, 1.0)
-        hlr_i = jnp.where(v, hlr_i, 0.5)
-        e1_i = jnp.where(v, e1_i, 0.0)
-        e2_i = jnp.where(v, e2_i, 0.0)
-        dx_i = jnp.where(v, dx_i, 0.0)
-        dy_i = jnp.where(v, dy_i, 0.0)
-        psf_img = jnp.where(v, psf_img, safe_psf)
-        wcs_params = jnp.where(
-            v, wcs_params, jnp.array([pixel_scale, 0.0, 0.0, pixel_scale])
-        )
-
-        gal = galsim.Exponential(
-            flux=flux_i, half_light_radius=hlr_i, gsparams=_gsp
-        )
-        gal = gal.shear(e1=e1_i, e2=e2_i)
-        gal = gal.shear(g1=g1, g2=g2)
-
-        psf = galsim.InterpolatedImage(
-            galsim.Image(psf_img, scale=pixel_scale), gsparams=_gsp
-        )
-        final = galsim.Convolve([gal, psf], gsparams=_gsp)
-
-        wcs = galsim.JacobianWCS(
-            dudx=wcs_params[0], dudy=wcs_params[1],
-            dvdx=wcs_params[2], dvdy=wcs_params[3],
-        )
-
-        pix_dx = dx_i / pixel_scale
-        pix_dy = dy_i / pixel_scale
-
-        stamp = final.drawImage(
-            nx=_ss, ny=_ss, wcs=wcs,
-            offset=galsim.PositionD(pix_dx, pix_dy),
-        ).array
-
-        return stamp * visible_i
-
-    # Vectorise rendering over tier sources
-    all_stamps = jax.vmap(render_one_galaxy)(
-        flux_t, hlr_t, e1_t, e2_t, dx_t, dy_t,
-        psf_t, wcs_t, pos_t, vis_t,
+    use_learned = (
+        ae is not None and learned_tier_idx is not None
+        and tier_idx == learned_tier_idx
     )
+
+    if use_learned:
+        z_t = z[indices]
+
+        # Use default-argument capture to bind stamp_size/gsparams/ae/
+        # pixel_scale at definition time (Python loop is unrolled by JIT
+        # tracer), matching the parametric path's convention below.
+        def render_one_learned_galaxy(
+            z_i, dx_i, dy_i, psf_img, wcs_params, visible_i,
+            _ss=stamp_size, _gsp=gsparams, _ae=ae, _ps=pixel_scale,
+        ):
+            return render_learned_galaxy(
+                z_i, g1, g2, psf_img, wcs_params, dx_i, dy_i, visible_i,
+                _ae, _ss, _ps, _gsp,
+            )
+
+        all_stamps = jax.vmap(render_one_learned_galaxy)(
+            z_t, dx_t, dy_t, psf_t, wcs_t, vis_t,
+        )
+    else:
+        # Gather per-source data for this tier and exposure
+        flux_t = flux[indices]
+        hlr_t = hlr[indices]
+        e1_t = e1[indices]
+        e2_t = e2[indices]
+
+        # Safe PSF fallback for invisible sources
+        psf_shape = psf_t.shape[-2:]
+        safe_psf = jnp.zeros(psf_shape)
+        safe_psf = safe_psf.at[psf_shape[0] // 2, psf_shape[1] // 2].set(1.0)
+
+        # Use default-argument capture to bind stamp_size and gsparams
+        # at definition time (Python loop is unrolled by JIT tracer).
+        def render_one_galaxy(
+            flux_i, hlr_i, e1_i, e2_i, dx_i, dy_i,
+            psf_img, wcs_params, pix_pos, visible_i,
+            _ss=stamp_size, _gsp=gsparams,
+        ):
+            v = visible_i
+            flux_i = jnp.where(v, flux_i, 1.0)
+            hlr_i = jnp.where(v, hlr_i, 0.5)
+            e1_i = jnp.where(v, e1_i, 0.0)
+            e2_i = jnp.where(v, e2_i, 0.0)
+            dx_i = jnp.where(v, dx_i, 0.0)
+            dy_i = jnp.where(v, dy_i, 0.0)
+            psf_img = jnp.where(v, psf_img, safe_psf)
+            wcs_params = jnp.where(
+                v, wcs_params, jnp.array([pixel_scale, 0.0, 0.0, pixel_scale])
+            )
+
+            gal = galsim.Exponential(
+                flux=flux_i, half_light_radius=hlr_i, gsparams=_gsp
+            )
+            gal = gal.shear(e1=e1_i, e2=e2_i)
+            gal = gal.shear(g1=g1, g2=g2)
+
+            psf = galsim.InterpolatedImage(
+                galsim.Image(psf_img, scale=pixel_scale), gsparams=_gsp
+            )
+            final = galsim.Convolve([gal, psf], gsparams=_gsp)
+
+            wcs = galsim.JacobianWCS(
+                dudx=wcs_params[0], dudy=wcs_params[1],
+                dvdx=wcs_params[2], dvdy=wcs_params[3],
+            )
+
+            pix_dx = dx_i / pixel_scale
+            pix_dy = dy_i / pixel_scale
+
+            stamp = final.drawImage(
+                nx=_ss, ny=_ss, wcs=wcs,
+                offset=galsim.PositionD(pix_dx, pix_dy),
+            ).array
+
+            return stamp * visible_i
+
+        # Vectorise rendering over tier sources
+        all_stamps = jax.vmap(render_one_galaxy)(
+            flux_t, hlr_t, e1_t, e2_t, dx_t, dy_t,
+            psf_t, wcs_t, pos_t, vis_t,
+        )
 
     # Scatter-add stamps onto the model image
     stamp_half = stamp_size // 2
@@ -206,6 +254,9 @@ def _render_exposure_image(
     pixel_scale: float,
     stamp_sizes: list[int],
     tier_indices: list[jnp.ndarray],
+    z: Optional[jnp.ndarray] = None,
+    ae: Optional[GalaxyAutoEncoder] = None,
+    learned_tier_idx: Optional[int] = None,
 ) -> jnp.ndarray:
     """Render all galaxies for one exposure into a model image.
 
@@ -227,6 +278,12 @@ def _render_exposure_image(
         pixel_scale: Pixel scale in arcsec/pixel.
         stamp_sizes: List of stamp side lengths, one per tier.
         tier_indices: Pre-computed index arrays, one per tier.
+        z: Per-source AE latent codes, or ``None`` when learned morphology
+            is disabled. See :func:`_render_tier`.
+        ae: Frozen AutoEncoder, or ``None`` when learned morphology is
+            disabled.
+        learned_tier_idx: Tier index the learned-morphology path applies
+            to, or ``None`` when disabled.
 
     Returns:
         Model image array of shape ``(image_ny, image_nx)``.
@@ -238,6 +295,7 @@ def _render_exposure_image(
             tier_idx, stamp_size, exp_idx,
             g1, g2, flux, hlr, e1, e2, dx, dy,
             data, pixel_scale, tier_indices, model_image,
+            z=z, ae=ae, learned_tier_idx=learned_tier_idx,
         )
 
     return model_image
@@ -259,6 +317,9 @@ def _render_exposure_likelihood(
     tier_indices: list[jnp.ndarray],
     observed_data: Optional[jnp.ndarray],
     extra_args: dict,
+    z: Optional[jnp.ndarray] = None,
+    ae: Optional[GalaxyAutoEncoder] = None,
+    learned_tier_idx: Optional[int] = None,
 ) -> None:
     """Render all galaxies for one exposure and evaluate likelihood.
 
@@ -283,10 +344,17 @@ def _render_exposure_likelihood(
             for prior predictive sampling.
         extra_args: Additional keyword arguments forwarded from the model
             call (unused, reserved for future extensions).
+        z: Per-source AE latent codes, or ``None`` when learned morphology
+            is disabled. See :func:`_render_tier`.
+        ae: Frozen AutoEncoder, or ``None`` when learned morphology is
+            disabled.
+        learned_tier_idx: Tier index the learned-morphology path applies
+            to, or ``None`` when disabled.
     """
     model_image = _render_exposure_image(
         exp_idx, g1, g2, flux, hlr, e1, e2, dx, dy,
         data, pixel_scale, stamp_sizes, tier_indices,
+        z=z, ae=ae, learned_tier_idx=learned_tier_idx,
     )
 
     # Likelihood: per-pixel Gaussian weighted by the RMS noise map
@@ -320,6 +388,10 @@ class MultiExposureScene:
     Attributes:
         config: Euclid inference configuration.
         data: Packed multi-exposure data (images, PSFs, WCS, noise maps).
+        ae: Frozen AutoEncoder used to decode the learned-morphology tier,
+            or ``None`` when ``config.learned_morphology`` is disabled.
+        flow: Frozen latent-space normalizing flow paired with ``ae``, or
+            ``None`` when disabled.
     """
 
     def __init__(
@@ -336,6 +408,21 @@ class MultiExposureScene:
         """
         self.config = config
         self.data = exposure_set
+
+        # Load the AE/flow once here (not per NumPyro model call) and keep
+        # them as plain Python attributes, never as numpyro.sample sites
+        # or SVI/NUTS-optimized parameters.
+        self.ae: Optional[GalaxyAutoEncoder] = None
+        self.flow: Optional[LatentFlow] = None
+        self._learned_tier_idx: Optional[int] = None
+
+        lm = config.learned_morphology
+        if lm is not None and lm.enabled:
+            self.ae = load_frozen_autoencoder(lm.ae_checkpoint_dir, lm.ae_epoch)
+            self.flow = load_frozen_flow(lm.flow_checkpoint_dir, lm.flow_epoch)
+            self._learned_tier_idx = config.galaxy_stamp_sizes.index(
+                lm.apply_to_stamp_size
+            )
 
     def _prepare_tier_indices(self, label: str) -> tuple[list[int], float, list[jnp.ndarray]]:
         """Pre-compute tier indices and log tier summary.
@@ -365,7 +452,9 @@ class MultiExposureScene:
         )
         return stamp_sizes, pixel_scale, tier_indices
 
-    def _sample_parameters(self) -> tuple:
+    def _sample_parameters(
+        self, tier_indices: Optional[list[jnp.ndarray]] = None
+    ) -> tuple:
         """Sample global shear and per-source parameters from config.
 
         Prior distributions are read from ``self.config.gal`` (a
@@ -373,8 +462,24 @@ class MultiExposureScene:
         ``center="catalog"`` use the per-source catalog values stored
         in ``self.data`` as the distribution location.
 
+        ``flux``/``hlr``/``e1``/``e2``/``dx``/``dy`` are always sampled
+        for every source, exactly as before the learned-morphology
+        addition (they are simply unused, not removed, on the learned
+        tier's rendering path). When ``self.ae`` is set, an *additional*
+        ``z`` latent code is sampled — only for sources belonging to the
+        learned tier — via :func:`~shine.morphology.prior.sample_latent_codes`.
+
+        Args:
+            tier_indices: Pre-computed per-tier source index arrays (see
+                :func:`_compute_tier_indices`), required when learned
+                morphology is enabled so the learned tier's sources can be
+                identified. Unused otherwise.
+
         Returns:
-            Tuple ``(g1, g2, flux, hlr, e1, e2, dx, dy)``.
+            Tuple ``(g1, g2, flux, hlr, e1, e2, dx, dy, z)``. ``z`` is
+            ``None`` unless learned morphology is enabled, in which case
+            it has shape ``(n_sources, *flow.latent_dim)`` with only the
+            learned tier's rows populated (the rest are zero).
         """
         gal_cfg = self.config.gal
         data = self.data
@@ -407,7 +512,18 @@ class MultiExposureScene:
                 dx = parse_prior("dx", gal_cfg.position.dx)
                 dy = parse_prior("dy", gal_cfg.position.dy)
 
-        return g1, g2, flux, hlr, e1, e2, dx, dy
+        z = None
+        if self.ae is not None:
+            learned_indices = tier_indices[self._learned_tier_idx]
+            n_learned = int(learned_indices.shape[0])
+            latent_shape = tuple(self.flow.latent_dim)
+            z = jnp.zeros((data.n_sources, *latent_shape))
+            if n_learned > 0:
+                with numpyro.plate("learned_sources", n_learned):
+                    z_learned = sample_latent_codes("z", self.flow, n_learned)
+                z = z.at[learned_indices].set(z_learned)
+
+        return g1, g2, flux, hlr, e1, e2, dx, dy, z
 
     def build_model(self) -> Callable:
         """Build the multi-exposure NumPyro model.
@@ -422,6 +538,7 @@ class MultiExposureScene:
             f"{data.n_exposures}-exposure"
         )
         sample_parameters = self._sample_parameters
+        ae, learned_tier_idx = self.ae, self._learned_tier_idx
 
         def model(
             observed_data: Optional[jnp.ndarray] = None, **extra_args
@@ -433,13 +550,14 @@ class MultiExposureScene:
                     Pass ``None`` for prior predictive sampling.
                 **extra_args: Reserved for future use.
             """
-            g1, g2, flux, hlr, e1, e2, dx, dy = sample_parameters()
+            g1, g2, flux, hlr, e1, e2, dx, dy, z = sample_parameters(tier_indices)
 
             for j in range(data.n_exposures):
                 _render_exposure_likelihood(
                     j, g1, g2, flux, hlr, e1, e2, dx, dy,
                     data, pixel_scale, stamp_sizes, tier_indices,
                     observed_data, extra_args,
+                    z=z, ae=ae, learned_tier_idx=learned_tier_idx,
                 )
 
         return model
@@ -474,6 +592,7 @@ class MultiExposureScene:
             f"single-exposure {exposure_idx}"
         )
         sample_parameters = self._sample_parameters
+        ae, learned_tier_idx = self.ae, self._learned_tier_idx
 
         def model(
             observed_data: Optional[jnp.ndarray] = None, **extra_args
@@ -485,12 +604,13 @@ class MultiExposureScene:
                     Pass ``None`` for prior predictive sampling.
                 **extra_args: Reserved for future use.
             """
-            g1, g2, flux, hlr, e1, e2, dx, dy = sample_parameters()
+            g1, g2, flux, hlr, e1, e2, dx, dy, z = sample_parameters(tier_indices)
 
             _render_exposure_likelihood(
                 exposure_idx, g1, g2, flux, hlr, e1, e2, dx, dy,
                 data, pixel_scale, stamp_sizes, tier_indices,
                 observed_data, extra_args,
+                z=z, ae=ae, learned_tier_idx=learned_tier_idx,
             )
 
         return model
@@ -501,6 +621,8 @@ def render_model_images(
     data: "ExposureSet",
     pixel_scale: float = 0.1,
     stamp_sizes: Optional[list[int]] = None,
+    ae: Optional[GalaxyAutoEncoder] = None,
+    learned_tier_idx: Optional[int] = None,
 ) -> jnp.ndarray:
     """Render model images for all exposures from parameter values.
 
@@ -511,11 +633,21 @@ def render_model_images(
     Args:
         params: Parameter dictionary with keys ``"g1"``, ``"g2"``,
             ``"flux"``, ``"hlr"``, ``"e1"``, ``"e2"``, ``"dx"``, ``"dy"``.
-            Scalars for shear, arrays of shape ``(n_sources,)`` for the rest.
+            Scalars for shear, arrays of shape ``(n_sources,)`` for the
+            rest. If learned morphology was used, also pass ``"z"``
+            (shape ``(n_sources, *ae's latent shape)``, e.g. the
+            ``"z"`` deterministic site from the model trace) along with
+            ``ae``/``learned_tier_idx`` to render that tier's sources
+            through the decoder instead of the parametric path.
         data: Packed multi-exposure data (images, PSFs, WCS, etc.).
         pixel_scale: Pixel scale in arcsec/pixel (default 0.1).
         stamp_sizes: Stamp tier sizes.  If ``None``, defaults to
             ``[64, 128, 256]``.
+        ae: Frozen AutoEncoder to decode the learned tier, or ``None`` to
+            render every tier parametrically (default).
+        learned_tier_idx: Tier index the learned-morphology path applies
+            to. Required (together with ``ae`` and ``params["z"]``) to
+            render the learned tier.
 
     Returns:
         Model images array of shape ``(n_exp, image_ny, image_nx)``.
@@ -531,11 +663,13 @@ def render_model_images(
     g1, g2, flux, hlr, e1, e2, dx, dy = (
         jnp.asarray(params[k]) for k in param_names
     )
+    z = jnp.asarray(params["z"]) if "z" in params else None
 
     images = [
         _render_exposure_image(
             j, g1, g2, flux, hlr, e1, e2, dx, dy,
             data, pixel_scale, stamp_sizes, tier_indices,
+            z=z, ae=ae, learned_tier_idx=learned_tier_idx,
         )
         for j in range(data.n_exposures)
     ]

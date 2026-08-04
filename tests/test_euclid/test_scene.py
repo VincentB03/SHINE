@@ -9,8 +9,18 @@ model variants.
 from pathlib import Path
 
 import jax
+import numpy as np
 import numpyro.handlers as handlers
 import pytest
+
+from tests.test_euclid.conftest import _data_config
+from tests.test_morphology.conftest import (
+    AE_CHECKPOINT_DIR,
+    AE_EPOCH,
+    FLOW_CHECKPOINT_DIR,
+    FLOW_EPOCH,
+    requires_checkpoints,
+)
 
 DATA_DIR = Path(__file__).parent.parent.parent / "data" / "EUC_VIS_SWL"
 
@@ -77,3 +87,92 @@ class TestMultiExposureModel:
         assert "obs_0" in trace
         assert "obs_1" not in trace
         assert "obs_2" not in trace
+
+
+# ---------------------------------------------------------------------------
+# Learned-morphology (AE + Flow) tier — gated on real checkpoints
+# ---------------------------------------------------------------------------
+
+
+@requires_checkpoints
+class TestLearnedMorphologyModel:
+    """Non-regression for the ``learned_morphology.enabled=True`` path.
+
+    Forces ``galaxy_stamp_sizes=[64]`` so every selected source lands in
+    the (sole) learned tier, regardless of its actual catalog size —
+    simpler and more deterministic than hand-picking small sources from
+    the bundled test data.
+    """
+
+    @pytest.fixture(scope="class")
+    def learned_config(self):
+        from shine.euclid.config import EuclidInferenceConfig, SourceSelectionConfig
+        from shine.morphology.config import LearnedMorphologyConfig
+
+        return EuclidInferenceConfig(
+            data=_data_config(),
+            sources=SourceSelectionConfig(
+                max_sources=3, min_snr=50.0, exclude_point_sources=False
+            ),
+            galaxy_stamp_sizes=[64],
+            learned_morphology=LearnedMorphologyConfig(
+                enabled=True,
+                ae_checkpoint_dir=str(AE_CHECKPOINT_DIR),
+                ae_epoch=AE_EPOCH,
+                flow_checkpoint_dir=str(FLOW_CHECKPOINT_DIR),
+                flow_epoch=FLOW_EPOCH,
+                apply_to_stamp_size=64,
+            ),
+        )
+
+    @pytest.fixture(scope="class")
+    def learned_exposure_set(self, learned_config):
+        from shine.euclid.data_loader import EuclidDataLoader
+
+        return EuclidDataLoader(learned_config).load()
+
+    def test_model_trace_has_z_site(self, learned_config, learned_exposure_set):
+        """The trace should contain the flow base sample and the z
+        deterministic site, with every source on the learned tier."""
+        from shine.euclid.scene import MultiExposureScene
+
+        scene = MultiExposureScene(learned_config, learned_exposure_set)
+        assert scene.ae is not None and scene.flow is not None
+
+        model = scene.build_model()
+        rng = jax.random.PRNGKey(0)
+        trace = handlers.trace(handlers.seed(model, rng)).get_trace(
+            observed_data=learned_exposure_set.images,
+        )
+
+        n_sources = learned_exposure_set.n_sources
+        latent_dim_flat = int(np.prod(scene.flow.latent_dim))
+        assert "z_base" in trace
+        assert trace["z_base"]["value"].shape == (n_sources, latent_dim_flat)
+        assert "z" in trace and trace["z"]["type"] == "deterministic"
+        assert trace["z"]["value"].shape == (n_sources, *scene.flow.latent_dim)
+
+        for j in range(learned_exposure_set.n_exposures):
+            assert f"obs_{j}" in trace
+
+    def test_map_step_produces_no_nan(self, learned_config, learned_exposure_set):
+        """A couple of MAP/SVI steps on the learned model should not
+        produce NaN parameter estimates."""
+        from shine.config import MAPConfig
+        from shine.euclid.scene import MultiExposureScene
+        from shine.inference import Inference
+
+        scene = MultiExposureScene(learned_config, learned_exposure_set)
+        model = scene.build_model()
+
+        inference = Inference(model, learned_config.inference)
+        estimates = inference.run_map(
+            jax.random.PRNGKey(0),
+            observed_data=learned_exposure_set.images,
+            map_config=MAPConfig(num_steps=3, learning_rate=0.01),
+        )
+
+        for name, value in estimates.items():
+            assert np.all(np.isfinite(np.asarray(value))), (
+                f"Non-finite MAP estimate for {name}"
+            )
