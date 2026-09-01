@@ -1,0 +1,39 @@
+attention_heads:
+  5: 4
+batch_size: 128
+dropout: 0.05
+epoch_to_decay:
+- 400
+- 800
+- 1200
+- 1600
+epochs: 2000
+hid_blocks: !!python/tuple
+- 2
+- 2
+- 2
+- 2
+- 2
+hid_channels: !!python/tuple
+- 32
+- 32
+- 64
+- 128
+- 256
+in_channels: 1
+kernel_size: 3
+latent_channels: 1
+learning_rate: 2.0e-06
+log_freq: 10
+losses:
+- student_t_masked
+lr_decay_factor: 0.5
+minimum_fft_size: 64
+nx: 64
+ny: 64
+patch_size: 1
+scale: 0.1
+stride: 2
+use_jax_galsim: true
+weights:
+- 1.0
