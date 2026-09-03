@@ -122,6 +122,7 @@ class TestLearnedMorphologyModel:
                 flow_checkpoint_dir=str(FLOW_CHECKPOINT_DIR),
                 flow_epoch=FLOW_EPOCH,
                 apply_to_stamp_size=64,
+                psf_residual_path=str(DATA_DIR / "PSF_3-4-F_residual.fits.gz"),
             ),
         )
 

@@ -142,6 +142,21 @@ def _render_tier(
     if use_learned:
         z_t = z[indices]
 
+        # decode(z) still contains the fixed reference PSF baked in from
+        # the AE's own training (only the spatially-varying residual was
+        # deconvolved out there -- see shine.morphology.psf_residual).
+        # Convolving with the *full* local PSF here would double-convolve
+        # with that reference PSF and over-blur the stamp; use the
+        # residual-PSF grid instead.
+        if data.psf_residual_images is None:
+            raise ValueError(
+                "learned_morphology is enabled but no residual-PSF grid "
+                "was loaded (EuclidInferenceConfig.learned_morphology."
+                "psf_residual_path). See shine/morphology/psf_residual.py "
+                "and scripts/build_residual_psf.py."
+            )
+        psf_residual_t = data.psf_residual_images[indices, exp_idx, :, :]
+
         # Use default-argument capture to bind stamp_size/gsparams/ae/
         # pixel_scale at definition time (Python loop is unrolled by JIT
         # tracer), matching the parametric path's convention below.
@@ -155,7 +170,7 @@ def _render_tier(
             )
 
         all_stamps = jax.vmap(render_one_learned_galaxy)(
-            z_t, dx_t, dy_t, psf_t, wcs_t, vis_t,
+            z_t, dx_t, dy_t, psf_residual_t, wcs_t, vis_t,
         )
     else:
         # Gather per-source data for this tier and exposure

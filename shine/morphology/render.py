@@ -45,7 +45,13 @@ def render_learned_galaxy(
             shape (e.g. ``(latent_channels, h, w)``).
         g1: Global shear component 1 (scalar).
         g2: Global shear component 2 (scalar).
-        psf_img: PSF postage stamp for this source/exposure.
+        psf_img: **Residual**-PSF postage stamp for this source/exposure
+            (see ``shine.morphology.psf_residual``), not the full local
+            PSF -- ``ae.decode(z_i)`` still contains the fixed reference
+            PSF baked in from training, so convolving with the full PSF
+            here would double-convolve with it. ``shine.euclid.scene``
+            passes ``ExposureSet.psf_residual_images``, not
+            ``psf_images``, into this function.
         wcs_params: Local WCS Jacobian ``(dudx, dudy, dvdx, dvdy)``.
         dx_i: Position offset in arcsec (x).
         dy_i: Position offset in arcsec (y).

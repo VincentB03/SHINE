@@ -25,9 +25,23 @@ def convolve_galsim(x, psf, nx, ny, scale):
 class GalaxyAutoEncoder(AutoEncoder):
     """AutoEncoder specialized for galaxy postage stamps.
 
-    ``decode`` produces the clean (pre-PSF-convolution) galaxy image, in
-    the same units as the ``sci_subtracted`` training cutouts. ``convolve``
-    reproduces the training-time GalSim convolution and is kept only for
+    ``decode`` produces a galaxy image in the same units as the
+    ``sci_subtracted`` training cutouts, but it is **not** fully
+    PSF-deconvolved: training only removes the *residual* part of the
+    local PSF relative to a fixed isotropic reference PSF
+    (``psf_ref``/``PSFiso``), by convolving the decoder output with
+    ``psf_residual`` (not the full PSF) before comparing to the observed
+    cutout -- see ``shine.morphology.psf_residual`` for the derivation.
+    Concretely, ``decode(z) ~= G_true (*) psf_ref``: the reference PSF is
+    still baked in. Consumers must convolve ``decode(z)`` with the
+    *residual* PSF at the source's position, not the full local PSF, or
+    the result double-convolves with ``psf_ref`` and comes out
+    over-blurred. ``shine.morphology.render.render_learned_galaxy`` (via
+    ``shine.euclid.scene``) does this correctly, using a residual-PSF grid
+    built by ``scripts/build_residual_psf.py``.
+
+    ``convolve`` reproduces the training-time GalSim convolution (i.e.
+    against ``psf_residual``, not the full PSF) and is kept only for
     parity with ``pshear``; SHINE's own renderer (``shine.morphology.render``,
     added separately) handles the real per-source WCS/PSF instead.
     """

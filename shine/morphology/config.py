@@ -33,6 +33,16 @@ class LearnedMorphologyConfig(BaseModel):
             trained for and should replace the parametric renderer on.
             Must match one of the values in
             ``EuclidInferenceConfig.galaxy_stamp_sizes``.
+        psf_residual_path: Path to a residual-PSF grid FITS file, in the
+            same tiled-grid format as ``EuclidDataConfig.psf_path`` (see
+            :mod:`shine.morphology.psf_residual`). The AE's decoder output
+            still contains a fixed reference PSF baked in from training
+            (only the spatially-varying residual was deconvolved out), so
+            the learned tier must be convolved with this residual PSF
+            instead of the full local PSF used by the parametric tiers —
+            using the full PSF here would double-convolve with the
+            reference PSF and over-blur the rendered stamp. Build it with
+            ``scripts/build_residual_psf.py``.
     """
 
     enabled: bool = False
@@ -41,6 +51,7 @@ class LearnedMorphologyConfig(BaseModel):
     flow_checkpoint_dir: str
     flow_epoch: int
     apply_to_stamp_size: int = 64
+    psf_residual_path: str
 
     @field_validator("ae_checkpoint_dir", "flow_checkpoint_dir")
     @classmethod
@@ -58,6 +69,24 @@ class LearnedMorphologyConfig(BaseModel):
         """
         if not Path(v).is_dir():
             raise ValueError(f"Checkpoint directory does not exist: {v}")
+        return v
+
+    @field_validator("psf_residual_path")
+    @classmethod
+    def validate_psf_residual_path_exists(cls, v: str) -> str:
+        """Validate that the residual-PSF grid FITS file exists on disk.
+
+        Args:
+            v: Residual-PSF grid file path to validate.
+
+        Returns:
+            The validated path.
+
+        Raises:
+            ValueError: If the file does not exist.
+        """
+        if not Path(v).is_file():
+            raise ValueError(f"Residual-PSF grid file does not exist: {v}")
         return v
 
     @field_validator("ae_epoch", "flow_epoch")

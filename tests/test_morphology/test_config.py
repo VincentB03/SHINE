@@ -13,6 +13,10 @@ from shine.morphology.config import LearnedMorphologyConfig
 
 
 def _morphology_config(tmp_path, **overrides):
+    psf_residual_path = tmp_path / "psf_residual.fits"
+    if not psf_residual_path.exists():
+        psf_residual_path.touch()
+
     kwargs = dict(
         enabled=True,
         ae_checkpoint_dir=str(tmp_path),
@@ -20,6 +24,7 @@ def _morphology_config(tmp_path, **overrides):
         flow_checkpoint_dir=str(tmp_path),
         flow_epoch=50,
         apply_to_stamp_size=64,
+        psf_residual_path=str(psf_residual_path),
     )
     kwargs.update(overrides)
     return LearnedMorphologyConfig(**kwargs)

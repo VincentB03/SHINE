@@ -314,6 +314,13 @@ class ExposureSet:
             ``(dudx, dudy, dvdx, dvdy)``.
         psf_images: Interpolated PSF stamps per source per exposure,
             shape ``(n_sources, n_exp, psf_size, psf_size)``.
+        psf_residual_images: Interpolated residual-PSF stamps (see
+            ``shine.morphology.psf_residual``), same shape as
+            ``psf_images``. ``None`` unless ``learned_morphology`` is
+            enabled and configured with a ``psf_residual_path`` — only
+            meaningful for sources on the learned tier, computed for every
+            source for simplicity (mirrors how ``flux``/``hlr``/etc. are
+            sampled for every source but unused on that tier).
         source_visible: Visibility flag per source per exposure, shape
             ``(n_sources, n_exp)``.
         catalog_flux_adu: Catalog flux in ADU per source, shape
@@ -347,6 +354,7 @@ class ExposureSet:
     pixel_positions: jnp.ndarray
     wcs_jacobians: jnp.ndarray
     psf_images: jnp.ndarray
+    psf_residual_images: Optional[jnp.ndarray]
     source_visible: jnp.ndarray
 
     catalog_flux_adu: jnp.ndarray
@@ -385,6 +393,7 @@ class EuclidDataLoader:
         """
         exposures = self._load_exposures()
         psf_model = self._load_psf()
+        psf_residual_model = self._load_psf_residual()
         backgrounds = self._load_backgrounds()
         catalog = self._load_catalog()
         sources = self._select_sources(catalog)
@@ -415,7 +424,9 @@ class EuclidDataLoader:
                 bg_list.append(float(np.median(exp.sci[mask])))
 
         # Per-source, per-exposure metadata.
-        metadata = self._compute_source_metadata(sources, exposures, psf_model)
+        metadata = self._compute_source_metadata(
+            sources, exposures, psf_model, psf_residual_model
+        )
 
         # Drop sources that fall outside all exposure footprints.
         any_visible = metadata["source_visible"].any(axis=1)
@@ -427,11 +438,14 @@ class EuclidDataLoader:
                 n_outside,
                 len(keep),
             )
-            for key in [
+            reindex_keys = [
                 "pixel_positions", "wcs_jacobians", "psf_images",
                 "source_visible", "flux_adu", "hlr_arcsec",
                 "ra", "dec", "stamp_tier",
-            ]:
+            ]
+            if metadata["psf_residual_images"] is not None:
+                reindex_keys.append("psf_residual_images")
+            for key in reindex_keys:
                 metadata[key] = metadata[key][keep]
             metadata["source_ids"] = [metadata["source_ids"][i] for i in keep]
 
@@ -473,6 +487,11 @@ class EuclidDataLoader:
             pixel_positions=jnp.array(metadata["pixel_positions"]),
             wcs_jacobians=jnp.array(metadata["wcs_jacobians"]),
             psf_images=jnp.array(metadata["psf_images"]),
+            psf_residual_images=(
+                jnp.array(metadata["psf_residual_images"])
+                if metadata["psf_residual_images"] is not None
+                else None
+            ),
             source_visible=jnp.array(metadata["source_visible"]),
             catalog_flux_adu=jnp.array(metadata["flux_adu"]),
             catalog_hlr_arcsec=jnp.array(metadata["hlr_arcsec"]),
@@ -512,6 +531,26 @@ class EuclidDataLoader:
         with fits.open(self.config.data.psf_path) as hdul:
             psf_data = hdul[self.config.data.quadrant].data.astype(np.float32)
         logger.info("  PSF tile shape: %s", psf_data.shape)
+        return EuclidPSFModel(psf_data)
+
+    def _load_psf_residual(self) -> Optional[EuclidPSFModel]:
+        """Load the residual-PSF grid for the learned-morphology tier.
+
+        See ``shine.morphology.psf_residual`` for what this file is and
+        why the learned tier needs it instead of the full local PSF.
+
+        Returns:
+            :class:`EuclidPSFModel` built from
+            ``learned_morphology.psf_residual_path``, or ``None`` if
+            learned morphology is disabled/not configured.
+        """
+        lm = self.config.learned_morphology
+        if lm is None or not lm.enabled:
+            return None
+        logger.info("Loading residual PSF: %s", lm.psf_residual_path)
+        with fits.open(lm.psf_residual_path) as hdul:
+            psf_data = hdul[self.config.data.quadrant].data.astype(np.float32)
+        logger.info("  Residual PSF tile shape: %s", psf_data.shape)
         return EuclidPSFModel(psf_data)
 
     def _load_backgrounds(self) -> Optional[list[np.ndarray]]:
@@ -637,6 +676,7 @@ class EuclidDataLoader:
         sources: Table,
         exposures: list[EuclidExposure],
         psf_model: EuclidPSFModel,
+        psf_residual_model: Optional[EuclidPSFModel] = None,
     ) -> dict:
         """Compute per-source, per-exposure metadata.
 
@@ -648,11 +688,14 @@ class EuclidDataLoader:
             sources: Selected source catalog.
             exposures: List of loaded exposures.
             psf_model: PSF grid model.
+            psf_residual_model: Residual-PSF grid model for the learned
+                tier, or ``None`` when learned morphology is disabled.
 
         Returns:
             Dictionary with keys ``pixel_positions``,
-            ``wcs_jacobians``, ``psf_images``, ``source_visible``,
-            ``flux_adu``, ``hlr_arcsec``, ``source_ids``.
+            ``wcs_jacobians``, ``psf_images``, ``psf_residual_images``,
+            ``source_visible``, ``flux_adu``, ``hlr_arcsec``,
+            ``source_ids``.
         """
         n_src = len(sources)
         n_exp = len(exposures)
@@ -702,6 +745,11 @@ class EuclidDataLoader:
         pixel_positions = np.zeros((n_src, n_exp, 2))
         wcs_jacobians = np.zeros((n_src, n_exp, 4))
         psf_images = np.zeros((n_src, n_exp, psf_stamp_size, psf_stamp_size))
+        psf_residual_images = (
+            np.zeros((n_src, n_exp, psf_stamp_size, psf_stamp_size))
+            if psf_residual_model is not None
+            else None
+        )
         source_visible = np.zeros((n_src, n_exp), dtype=bool)
 
         for i, src in enumerate(sources):
@@ -717,6 +765,8 @@ class EuclidDataLoader:
                     source_visible[i, j] = True
                     wcs_jacobians[i, j] = exp.local_wcs_jacobian(x, y)
                     psf_images[i, j] = psf_model.interpolate_at(x, y)
+                    if psf_residual_model is not None:
+                        psf_residual_images[i, j] = psf_residual_model.interpolate_at(x, y)
 
         # Flux conversion: microJansky -> ADU.
         flux_adu = self._flux_ujy_to_adu(sources, exposures[0])
@@ -737,6 +787,7 @@ class EuclidDataLoader:
             "pixel_positions": pixel_positions,
             "wcs_jacobians": wcs_jacobians,
             "psf_images": psf_images,
+            "psf_residual_images": psf_residual_images,
             "source_visible": source_visible,
             "flux_adu": flux_adu,
             "hlr_arcsec": hlr_arcsec,
