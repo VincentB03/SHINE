@@ -1,0 +1,190 @@
+wandb_version: 1
+
+_wandb:
+  desc: null
+  value:
+    python_version: 3.12.7
+    cli_version: 0.27.0
+    framework: torch
+    is_jupyter_run: false
+    is_kaggle_kernel: false
+    start_time: 1788780378
+    t:
+      1:
+      - 1
+      - 12
+      - 49
+      - 51
+      2:
+      - 1
+      - 12
+      - 49
+      - 51
+      3:
+      - 2
+      - 3
+      - 4
+      - 13
+      - 14
+      - 16
+      - 42
+      4: 3.12.7
+      5: 0.27.0
+      13: linux-x86_64
+    e:
+      rkrvzkxobk5vlvowgl4sc9jsocur3les:
+        os: Linux-5.14.0-570.131.1.el9_6.x86_64-x86_64-with-glibc2.34
+        python: CPython 3.12.7
+        started_at: '2026-09-07T11:26:10.160929Z'
+        program: -m experiments.train_flow
+        root: /lustre/fsn1/projects/rech/prk/ugd35xy/pshear/cosmos
+        host: r7i7n7
+        executable: /lustre/fshomisc/sup/hpe/pub/miniforge/24.9.0/envs/python-3.12.7/bin/python
+        cpu_count: 40
+        cpu_count_logical: 80
+        gpu_type: Tesla V100-SXM2-32GB
+        gpu_count: 4
+        disk:
+          /:
+            total: '100275146752'
+            used: '9929048064'
+        memory:
+          total: '200550293504'
+        gpu_nvidia:
+        - name: Tesla V100-SXM2-32GB
+          memory_total: '34359738368'
+          cuda_cores: 5120
+          architecture: Volta
+          uuid: GPU-8a0bb359-7bbd-210a-44e1-9edc281dd639
+        - name: Tesla V100-SXM2-32GB
+          memory_total: '34359738368'
+          cuda_cores: 5120
+          architecture: Volta
+          uuid: GPU-e8328fc2-b4e6-e437-92d2-065550c6533d
+        - name: Tesla V100-SXM2-32GB
+          memory_total: '34359738368'
+          cuda_cores: 5120
+          architecture: Volta
+          uuid: GPU-f7f4b40c-ff12-2151-a14d-3ba5afe57226
+        - name: Tesla V100-SXM2-32GB
+          memory_total: '34359738368'
+          cuda_cores: 5120
+          architecture: Volta
+          uuid: GPU-b25cbf30-c39a-440e-ae22-2233778d4cd5
+        cuda_version: '13.0'
+        slurm:
+          tres_per_task: cpu=10
+          job_name: test_flow
+          job_qos: qos_gpu-t3
+          job_group: gencvz01
+          conf: /etc/slurm/slurm.conf
+          stepid: '0'
+          srun_comm_host: 10.148.0.109
+          threads_per_core: '1'
+          task_pid: '216564'
+          nodeid: '0'
+          launch_node_ipaddr: 10.148.0.109
+          cluster_name: jean-zay
+          cpu_bind_type: 'mask_cpu:'
+          job_partition: gpu_p13
+          step_id: '0'
+          nodelist: r7i7n7
+          job_end_time: '1788801746'
+          distribution: cyclic
+          jobid: '1850267'
+          gpus_on_node: '4'
+          procid: '0'
+          step_num_tasks: '1'
+          job_id: '1850267'
+          ntasks_per_node: '1'
+          job_account: prk@v100
+          job_uid: '306828'
+          topology_addr_pattern: node
+          step_num_nodes: '1'
+          umask: '0027'
+          localid: '0'
+          step_gpus: 0,1,2,3
+          prio_process: '0'
+          step_nodelist: r7i7n7
+          tasks_per_node: '1'
+          nprocs: '1'
+          topology_addr: r7i7n7
+          srun_comm_port: '62388'
+          spank_gpu_srange: 0-1980
+          spank_gpu_srange_src: default
+          gtids: '0'
+          mem_per_cpu: '4000'
+          oom_kill_step: '0'
+          cpus_on_node: '20'
+          script_context: prolog_task
+          job_user: ugd35xy
+          cpu_bind: quiet,mask_cpu:0x00000000000001F0001F
+          nnodes: '1'
+          step_launcher_port: '62388'
+          job_cpus_per_node: '10'
+          job_start_time: '1788780146'
+          job_num_nodes: '1'
+          cpu_bind_verbose: quiet
+          ntasks: '1'
+          submit_dir: /lustre/fswork/projects/rech/prk/ugd35xy/Train-AE
+          step_tasks_per_node: '1'
+          job_gid: '305299'
+          step_resv_ports: 13513-13514
+          submit_host: jean-zay2
+          cpu_bind_list: '0x00000000000001F0001F'
+          job_gpus: 0,1,2,3
+          job_nodelist: r7i7n7
+          cpus_per_task: '10'
+          hint: nomultithread
+        writer_id: rkrvzkxobk5vlvowgl4sc9jsocur3les
+ae_run_dir:
+  desc: null
+  value: Student-1_i344nq38
+ae_epoch:
+  desc: null
+  value: 2000
+flow_type:
+  desc: null
+  value: RealNVP
+flow_layers:
+  desc: null
+  value: 4
+latent_dim:
+  desc: null
+  value:
+  - 1
+  - 4
+  - 4
+cond_dim:
+  desc: null
+  value: null
+bijector:
+  desc: null
+  value: affine
+nn_width:
+  desc: null
+  value: 128
+nn_depth:
+  desc: null
+  value: 2
+knots:
+  desc: null
+  value: 28
+interval:
+  desc: null
+  value: 5.5
+peak_learning_rate:
+  desc: null
+  value: 0.0001
+end_learning_rate:
+  desc: null
+  value: 1.0e-06
+batch_size:
+  desc: null
+  value: 256
+epochs:
+  desc: null
+  value: 500
+log_freq:
+  desc: null
+  value: 10

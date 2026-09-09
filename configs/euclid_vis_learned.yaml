@@ -67,20 +67,19 @@ galaxy_stamp_sizes: [64, 128, 256]
 
 # AE trained on 64x64 stamps @ 0.1"/px (matches Euclid VIS pixel_scale
 # above); flow trained on that exact AE's latents (the flow's own
-# config.yaml records ae_run_dir: Student-1_i1pf186a, ae_epoch: 2000,
+# config.yaml records ae_run_dir: Student-1_i344nq38, ae_epoch: 2000,
 # matching ae_checkpoint_dir/ae_epoch below).
-# NOTE: ae_checkpoint_dir/flow_checkpoint_dir are local, machine-specific
-# paths (not committed / not LFS) — swap them to point at wherever the
-# current checkpoints live. psf_residual_path, by contrast, is a real
-# path checked into this repo (see scripts/build_residual_psf.py and
-# data/LEARNED_MORPHOLOGY_NOTES.md for why the learned tier needs a
-# residual PSF instead of the full local PSF).
+# All three paths below are checked into this repo, the checkpoints under
+# wandb_weights/ via git-lfs (so `git lfs pull` is required). Swap the
+# checkpoint directories to point at a newly trained pair when there is one.
+# See scripts/build_residual_psf.py and data/LEARNED_MORPHOLOGY_NOTES.md for
+# why the learned tier needs a residual PSF rather than the full local PSF.
 learned_morphology:
   enabled: true
-  ae_checkpoint_dir: /Users/vb287274/Desktop/wandb_weights/i1pf186a/epoch_2000
+  ae_checkpoint_dir: wandb_weights/i344nq38/epoch_2000
   ae_epoch: 2000
-  flow_checkpoint_dir: /Users/vb287274/Desktop/wandb_weights/4q23te9a/epoch_420
-  flow_epoch: 420
+  flow_checkpoint_dir: wandb_weights/2815kuay/epoch_500
+  flow_epoch: 500
   apply_to_stamp_size: 64
   psf_residual_path: data/EUC_VIS_SWL/PSF_3-4-F_residual.fits.gz
 

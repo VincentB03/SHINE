@@ -79,8 +79,8 @@ class TestSampleLatentCodes:
 
         flowjax keeps the base distribution's ``loc``/``scale`` trainable, so
         a trained checkpoint's base is generally not ``N(0, 1)`` (the flow
-        shipped in ``wandb_weights/4q23te9a`` has a ``loc`` component at
-        ``-1.97``). Pushing a standard normal straight through the bijection
+        shipped in ``wandb_weights/2815kuay`` has a ``loc`` component at
+        ``-1.65``). Pushing a standard normal straight through the bijection
         would then sample a different prior than the one that was trained.
         """
         flow = _flow()
