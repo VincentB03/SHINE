@@ -6,9 +6,13 @@ flow's shape/API (forward, latent_dim, unflatten_latent), not on trained
 weights, so these tests run without any checkpoint files on disk.
 """
 
+import equinox as eqx
 import jax
+import jax.numpy as jnp
 import numpy as np
 import numpyro
+import paramax
+from flowjax.distributions import Normal as FlowjaxNormal
 from numpyro.handlers import seed, trace
 
 from shine.morphology.nn.flow import make_latent_flow
@@ -69,3 +73,40 @@ class TestSampleLatentCodes:
         z2 = seed(model, jax.random.PRNGKey(1))()
 
         assert not np.allclose(np.asarray(z1), np.asarray(z2))
+
+    def test_matches_flow_own_samples_with_non_standard_base(self):
+        """The prior must reproduce ``flow.sample()``, base params included.
+
+        flowjax keeps the base distribution's ``loc``/``scale`` trainable, so
+        a trained checkpoint's base is generally not ``N(0, 1)`` (the flow
+        shipped in ``wandb_weights/4q23te9a`` has a ``loc`` component at
+        ``-1.97``). Pushing a standard normal straight through the bijection
+        would then sample a different prior than the one that was trained.
+        """
+        flow = _flow()
+        n_dims = int(np.prod(flow.latent_dim))
+
+        # Give the base distribution a deliberately non-standard loc/scale,
+        # mimicking what training does to a real checkpoint.
+        loc = jnp.linspace(-2.0, 1.0, n_dims)
+        scale = jnp.linspace(0.5, 1.5, n_dims)
+        # Replace the whole base distribution rather than its leaves: flowjax
+        # stores `scale` behind a paramax positivity wrapper.
+        flow = eqx.tree_at(
+            lambda f: f.flow.base_dist, flow, FlowjaxNormal(loc, scale)
+        )
+        assert np.allclose(np.asarray(paramax.unwrap(flow.flow).base_dist.loc), loc)
+
+        n_draws = 4000
+        reference = np.asarray(flow.sample(key=jax.random.key(0), sample_shape=(n_draws,)))
+        model = _model(flow, n_draws)
+        sampled = np.asarray(seed(model, jax.random.PRNGKey(1))()).reshape(n_draws, n_dims)
+
+        # Distributional agreement, well inside Monte-Carlo noise for 4k draws
+        # (the un-fixed implementation misses per-dimension means by ~2).
+        np.testing.assert_allclose(
+            sampled.mean(axis=0), reference.mean(axis=0), atol=0.15
+        )
+        np.testing.assert_allclose(
+            sampled.std(axis=0), reference.std(axis=0), rtol=0.15
+        )
