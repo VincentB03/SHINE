@@ -175,6 +175,110 @@ class TestSourceSelection:
         sources = loader._select_sources(catalog)
         assert len(sources) == 3
 
+    def test_max_snr_bounds_the_band_from_above(self):
+        """``max_snr`` must keep only sources inside the SNR band."""
+        from shine.euclid.config import (
+            EuclidInferenceConfig,
+            SourceSelectionConfig,
+        )
+        from shine.euclid.data_loader import EuclidDataLoader
+
+        from .conftest import _data_config
+
+        config = EuclidInferenceConfig(
+            data=_data_config(),
+            sources=SourceSelectionConfig(min_snr=12.0, max_snr=25.0),
+        )
+        loader = EuclidDataLoader(config)
+        sources = loader._select_sources(loader._load_catalog())
+        snr = np.asarray(
+            sources["flux_detection_total"] / sources["fluxerr_detection_total"]
+        )
+
+        assert len(sources) > 0
+        assert snr.min() >= 12.0
+        assert snr.max() <= 25.0
+
+    @pytest.mark.parametrize("order", ["brightest", "faintest", "random"])
+    def test_selection_order_picks_the_right_end(self, order):
+        """Each ``selection_order`` must truncate at the end it names.
+
+        The faint band is the point of the option: ``brightest`` (the
+        historical behaviour) biases the sample towards sources far outside
+        the learned tier's trained flux range, while ``random`` preserves the
+        surviving population's flux distribution.
+        """
+        from shine.euclid.config import (
+            EuclidInferenceConfig,
+            SourceSelectionConfig,
+        )
+        from shine.euclid.data_loader import EuclidDataLoader
+
+        from .conftest import _data_config
+
+        def median_snr(**kwargs):
+            config = EuclidInferenceConfig(
+                data=_data_config(),
+                sources=SourceSelectionConfig(min_snr=10.0, **kwargs),
+            )
+            loader = EuclidDataLoader(config)
+            sources = loader._select_sources(loader._load_catalog())
+            return len(sources), float(
+                np.median(
+                    sources["flux_detection_total"]
+                    / sources["fluxerr_detection_total"]
+                )
+            )
+
+        n_all, snr_all = median_snr()
+        n_cut, snr_cut = median_snr(max_sources=20, selection_order=order)
+
+        assert n_cut == 20 < n_all
+        if order == "brightest":
+            assert snr_cut > snr_all
+        elif order == "faintest":
+            assert snr_cut < snr_all
+        else:
+            # An unbiased draw of 20 from a heavily skewed distribution is
+            # noisy, so only assert it lands between the two extremes.
+            _, snr_bright = median_snr(max_sources=20, selection_order="brightest")
+            _, snr_faint = median_snr(max_sources=20, selection_order="faintest")
+            assert snr_faint < snr_cut < snr_bright
+
+    def test_random_selection_is_reproducible(self):
+        """The same ``selection_seed`` must give the same sources."""
+        from shine.euclid.config import (
+            EuclidInferenceConfig,
+            SourceSelectionConfig,
+        )
+        from shine.euclid.data_loader import EuclidDataLoader
+
+        from .conftest import _data_config
+
+        def ids(seed):
+            config = EuclidInferenceConfig(
+                data=_data_config(),
+                sources=SourceSelectionConfig(
+                    min_snr=10.0,
+                    max_sources=15,
+                    selection_order="random",
+                    selection_seed=seed,
+                ),
+            )
+            loader = EuclidDataLoader(config)
+            sources = loader._select_sources(loader._load_catalog())
+            return list(np.asarray(sources["object_id"]))
+
+        assert ids(0) == ids(0)
+        assert ids(0) != ids(1)
+
+    def test_snr_band_must_not_be_empty(self):
+        """``max_snr`` at or below ``min_snr`` must be rejected outright."""
+        from shine.euclid.config import SourceSelectionConfig
+
+        with pytest.raises(ValueError, match="max_snr must be greater"):
+            SourceSelectionConfig(min_snr=25.0, max_snr=12.0)
+
     def test_flux_conversion(self, small_config):
         """Converted flux_adu values should be positive and finite."""
         from shine.euclid.data_loader import EuclidDataLoader, EuclidExposure

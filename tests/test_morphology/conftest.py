@@ -25,7 +25,7 @@ AE_EPOCH = int(os.environ.get("SHINE_TEST_AE_EPOCH", "2000"))
 FLOW_CHECKPOINT_DIR = Path(
     os.environ.get(
         "SHINE_TEST_FLOW_CHECKPOINT_DIR",
-        REPO_ROOT / "wandb_weights" / "2815kuay" / "epoch_500",
+        REPO_ROOT / "wandb_weights" / "9i28jqsm" / "epoch_500",
     )
 )
 FLOW_EPOCH = int(os.environ.get("SHINE_TEST_FLOW_EPOCH", "500"))

@@ -602,12 +602,22 @@ class EuclidDataLoader:
         ):
             snr = catalog["flux_detection_total"] / catalog["fluxerr_detection_total"]
             mask &= snr >= src_cfg.min_snr
-            logger.info(
-                "  SNR >= %.1f: %d / %d pass",
-                src_cfg.min_snr,
-                mask.sum(),
-                len(catalog),
-            )
+            if src_cfg.max_snr is not None:
+                mask &= snr <= src_cfg.max_snr
+                logger.info(
+                    "  %.1f <= SNR <= %.1f: %d / %d pass",
+                    src_cfg.min_snr,
+                    src_cfg.max_snr,
+                    mask.sum(),
+                    len(catalog),
+                )
+            else:
+                logger.info(
+                    "  SNR >= %.1f: %d / %d pass",
+                    src_cfg.min_snr,
+                    mask.sum(),
+                    len(catalog),
+                )
 
         # VIS detection.
         if src_cfg.require_vis_detected and "vis_det" in catalog.colnames:
@@ -657,17 +667,31 @@ class EuclidDataLoader:
         logger.info("  After all filters: %d sources", len(selected))
 
         if src_cfg.max_sources is not None and len(selected) > src_cfg.max_sources:
-            # Sort by SNR descending, take top N.
-            if (
+            has_snr = (
                 "flux_detection_total" in selected.colnames
                 and "fluxerr_detection_total" in selected.colnames
-            ):
+            )
+            if src_cfg.selection_order == "random":
+                # An unbiased draw: the only order that keeps the surviving
+                # population's flux distribution intact.
+                rng = np.random.default_rng(src_cfg.selection_seed)
+                idx = rng.choice(
+                    len(selected), size=src_cfg.max_sources, replace=False
+                )
+                selected = selected[np.sort(idx)]
+            elif has_snr:
                 snr = selected["flux_detection_total"] / selected["fluxerr_detection_total"]
-                idx = np.argsort(snr)[::-1][: src_cfg.max_sources]
-                selected = selected[idx]
+                order = np.argsort(snr)
+                if src_cfg.selection_order == "brightest":
+                    order = order[::-1]
+                selected = selected[order[: src_cfg.max_sources]]
             else:
                 selected = selected[: src_cfg.max_sources]
-            logger.info("  Capped to %d sources", src_cfg.max_sources)
+            logger.info(
+                "  Capped to %d sources (%s)",
+                src_cfg.max_sources,
+                src_cfg.selection_order,
+            )
 
         return selected
 

@@ -78,10 +78,16 @@ class TestSampleLatentCodes:
         """The prior must reproduce ``flow.sample()``, base params included.
 
         flowjax keeps the base distribution's ``loc``/``scale`` trainable, so
-        a trained checkpoint's base is generally not ``N(0, 1)`` (the flow
-        shipped in ``wandb_weights/2815kuay`` has a ``loc`` component at
-        ``-1.65``). Pushing a standard normal straight through the bijection
-        would then sample a different prior than the one that was trained.
+        a trained checkpoint's base is not guaranteed to be ``N(0, 1)``: the
+        RealNVP flow previously shipped here (``2815kuay``) had drifted to a
+        ``loc`` component of ``-1.65``. The MAF flow now in
+        ``wandb_weights/9i28jqsm`` happens to have stayed close to standard
+        (max ``|loc|`` 0.02, scales 0.90-1.04), so this test injects a
+        deliberately non-standard base rather than relying on the shipped
+        checkpoint -- it must keep guarding the behaviour for whatever
+        checkpoint comes next. Pushing a standard normal straight through the
+        bijection would sample a different prior than the one that was
+        trained.
         """
         flow = _flow()
         n_dims = int(np.prod(flow.latent_dim))

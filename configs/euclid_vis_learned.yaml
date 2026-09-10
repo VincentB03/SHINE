@@ -78,7 +78,7 @@ learned_morphology:
   enabled: true
   ae_checkpoint_dir: wandb_weights/i344nq38/epoch_2000
   ae_epoch: 2000
-  flow_checkpoint_dir: wandb_weights/2815kuay/epoch_500
+  flow_checkpoint_dir: wandb_weights/9i28jqsm/epoch_500
   flow_epoch: 500
   apply_to_stamp_size: 64
   psf_residual_path: data/EUC_VIS_SWL/PSF_3-4-F_residual.fits.gz

@@ -1,14 +1,14 @@
 _wandb:
   cli_version: 0.27.0
   e:
-    rkrvzkxobk5vlvowgl4sc9jsocur3les:
+    osrarct3tyhmdqmladed0jsdqb8j9x4c:
       cpu_count: 40
       cpu_count_logical: 80
       cuda_version: '13.0'
       disk:
         /:
-          total: '100275146752'
-          used: '9929048064'
+          total: '100275138560'
+          used: '9947594752'
       executable: /lustre/fshomisc/sup/hpe/pub/miniforge/24.9.0/envs/python-3.12.7/bin/python
       gpu_count: 4
       gpu_nvidia:
@@ -16,26 +16,26 @@ _wandb:
         cuda_cores: 5120
         memory_total: '34359738368'
         name: Tesla V100-SXM2-32GB
-        uuid: GPU-8a0bb359-7bbd-210a-44e1-9edc281dd639
+        uuid: GPU-28212b16-ac32-d9c8-fd1a-853c4090d6d6
       - architecture: Volta
         cuda_cores: 5120
         memory_total: '34359738368'
         name: Tesla V100-SXM2-32GB
-        uuid: GPU-e8328fc2-b4e6-e437-92d2-065550c6533d
+        uuid: GPU-f2c22ae1-a857-8df0-3fe8-f554fd6f8569
       - architecture: Volta
         cuda_cores: 5120
         memory_total: '34359738368'
         name: Tesla V100-SXM2-32GB
-        uuid: GPU-f7f4b40c-ff12-2151-a14d-3ba5afe57226
+        uuid: GPU-dbf3892a-da83-ea1e-b7d9-ceaaae67d553
       - architecture: Volta
         cuda_cores: 5120
         memory_total: '34359738368'
         name: Tesla V100-SXM2-32GB
-        uuid: GPU-b25cbf30-c39a-440e-ae22-2233778d4cd5
+        uuid: GPU-8e126b76-7f17-19b2-37b4-f27898287955
       gpu_type: Tesla V100-SXM2-32GB
-      host: r7i7n7
+      host: r6i5n6
       memory:
-        total: '200550293504'
+        total: '200550281216'
       os: Linux-5.14.0-570.131.1.el9_6.x86_64-x86_64-with-glibc2.34
       program: -m experiments.train_flow
       python: CPython 3.12.7
@@ -55,26 +55,26 @@ _wandb:
         hint: nomultithread
         job_account: prk@v100
         job_cpus_per_node: '10'
-        job_end_time: '1788801746'
+        job_end_time: '1788981753'
         job_gid: '305299'
         job_gpus: 0,1,2,3
         job_group: gencvz01
-        job_id: '1850267'
+        job_id: '1946839'
         job_name: test_flow
-        job_nodelist: r7i7n7
+        job_nodelist: r6i5n6
         job_num_nodes: '1'
         job_partition: gpu_p13
         job_qos: qos_gpu-t3
-        job_start_time: '1788780146'
+        job_start_time: '1788960153'
         job_uid: '306828'
         job_user: ugd35xy
-        jobid: '1850267'
-        launch_node_ipaddr: 10.148.0.109
+        jobid: '1946839'
+        launch_node_ipaddr: 10.148.8.50
         localid: '0'
         mem_per_cpu: '4000'
         nnodes: '1'
         nodeid: '0'
-        nodelist: r7i7n7
+        nodelist: r6i5n6
         nprocs: '1'
         ntasks: '1'
         ntasks_per_node: '1'
@@ -84,33 +84,33 @@ _wandb:
         script_context: prolog_task
         spank_gpu_srange: 0-1980
         spank_gpu_srange_src: default
-        srun_comm_host: 10.148.0.109
-        srun_comm_port: '62388'
+        srun_comm_host: 10.148.8.50
+        srun_comm_port: '62405'
         step_gpus: 0,1,2,3
         step_id: '0'
-        step_launcher_port: '62388'
-        step_nodelist: r7i7n7
+        step_launcher_port: '62405'
+        step_nodelist: r6i5n6
         step_num_nodes: '1'
         step_num_tasks: '1'
-        step_resv_ports: 13513-13514
+        step_resv_ports: 15942-15943
         step_tasks_per_node: '1'
         stepid: '0'
         submit_dir: /lustre/fswork/projects/rech/prk/ugd35xy/Train-AE
-        submit_host: jean-zay2
-        task_pid: '216564'
+        submit_host: jean-zay1
+        task_pid: '487798'
         tasks_per_node: '1'
         threads_per_core: '1'
-        topology_addr: r7i7n7
+        topology_addr: r6i5n6
         topology_addr_pattern: node
         tres_per_task: cpu=10
         umask: '0027'
-      started_at: '2026-09-07T11:26:10.160929Z'
-      writer_id: rkrvzkxobk5vlvowgl4sc9jsocur3les
+      started_at: '2026-09-09T13:25:46.300944Z'
+      writer_id: osrarct3tyhmdqmladed0jsdqb8j9x4c
   framework: torch
   is_jupyter_run: false
   is_kaggle_kernel: false
   python_version: 3.12.7
-  start_time: 1788780378
+  start_time: 1788960354
   t:
     1:
     - 1
@@ -136,14 +136,14 @@ _wandb:
 ae_epoch: 2000
 ae_run_dir: Student-1_i344nq38
 batch_size: 256
-bijector: affine
+bijector: RQS
 cond_dim: null
-end_learning_rate: 1.0e-06
+end_learning_rate: 5.0e-07
 epochs: 500
 flow_layers: 4
-flow_type: RealNVP
-interval: 5.5
-knots: 28
+flow_type: MAF
+interval: 5.0
+knots: 12
 latent_dim:
 - 1
 - 4
@@ -151,5 +151,5 @@ latent_dim:
 log_freq: 10
 nn_depth: 2
 nn_width: 128
-peak_learning_rate: 0.0001
+peak_learning_rate: 3.0e-05
 wandb_version: 1

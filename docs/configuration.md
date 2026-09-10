@@ -385,3 +385,27 @@ inference:
 galaxy_stamp_sizes: [64, 128, 256]
 background: fixed
 ```
+
+#### Selecting *which* sources
+
+`sources:` also accepts an upper SNR bound and a truncation order, which
+matter as soon as the model being fitted was trained on a particular
+population:
+
+```yaml
+sources:
+  min_snr: 12.0
+  max_snr: 25.0            # closes the band from above (default: no bound)
+  max_sources: 60
+  selection_order: random  # brightest (default) | faintest | random
+  selection_seed: 0        # only used by selection_order: random
+```
+
+`max_sources` alone is a *bright-end truncation* by default: sources are
+sorted by SNR descending and the top N kept.  That is the right choice when
+the goal is the highest-SNR shapes available, and the wrong one for the
+learned-morphology tier, whose AE/flow pair was trained on a
+magnitude-limited population — on the bundled quadrant the top 20 by SNR
+have catalogue fluxes around 7e4 ADU against a prior that generates ~1e3
+ADU.  `selection_order: random` inside an SNR band keeps the surviving
+population's flux distribution intact.

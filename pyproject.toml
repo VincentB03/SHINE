@@ -34,7 +34,7 @@ dependencies = [
     "astropy>=5.0",
     "corner>=2.0.0",
     "equinox>=0.11",
-    "flowjax",
+    "flowjax>=18.0",
     "paramax",
     "einops>=0.8",
 ]

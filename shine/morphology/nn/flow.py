@@ -51,6 +51,14 @@ class LatentFlow(eqx.Module):
         base_dist = Normal(jnp.zeros(math.prod(latent_dim)))
 
         if flow_type == "MAF":
+            # `flow_layers` is deliberately NOT forwarded here: the training
+            # script (`Train-AE/experiments/train_flow.py`) does not forward
+            # it either, so a checkpoint whose config.yaml records
+            # `flow_layers: 4` was in fact trained with flowjax's default of
+            # 8 -- `wandb_weights/9i28jqsm/epoch_500` carries 8 stacked
+            # conditioners. Passing it through would build a 4-layer flow and
+            # make `eqx.tree_deserialise_leaves` fail on a shape mismatch.
+            # Keep the two sides identical rather than "fixing" one of them.
             self.flow = masked_autoregressive_flow(
                 key,
                 base_dist=base_dist,

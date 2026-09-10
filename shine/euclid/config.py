@@ -9,7 +9,7 @@ model explicit in the YAML configuration file.
 
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from shine.config import (
     DistributionConfig,
@@ -95,17 +95,35 @@ class SourceSelectionConfig(BaseModel):
             (bit 10), and deblending-skipped (bit 11).  Bits 1
             (neighbor contamination) and 2 (blended) are kept because
             SHINE can handle these.  Set to 0 to disable.
+        max_snr: Upper signal-to-noise cut, or None for no upper bound
+            (default). Together with ``min_snr`` this selects a *band*
+            in brightness rather than everything above a floor, which is
+            what the learned-morphology tier needs: the AE/flow pair was
+            trained on a magnitude-limited population whose stamps sum to
+            ~1e3 ADU, while the brightest sources of a quadrant reach
+            ~1e5 ADU and sit far outside the decoder's trained domain.
         max_sources: Maximum number of sources to process. None means
             no limit.
+        selection_order: How ``max_sources`` truncates the surviving
+            catalog. ``"brightest"`` (default, the historical behaviour)
+            keeps the highest-SNR sources; ``"faintest"`` keeps the
+            lowest-SNR ones; ``"random"`` draws an unbiased sample of the
+            whole surviving population, which is the only one of the
+            three that preserves its flux distribution.
+        selection_seed: Seed for ``selection_order="random"``, so a run
+            is reproducible. Ignored by the other orders.
     """
 
     min_snr: float = 10.0
+    max_snr: Optional[float] = None
     require_vis_detected: bool = True
     exclude_spurious: bool = True
     exclude_deblended: bool = False
     exclude_point_sources: bool = True
     det_quality_exclude_mask: int = 0x78C
     max_sources: Optional[int] = None
+    selection_order: Literal["brightest", "faintest", "random"] = "brightest"
+    selection_seed: int = 0
 
     @field_validator("min_snr")
     @classmethod
@@ -124,6 +142,23 @@ class SourceSelectionConfig(BaseModel):
         if v <= 0:
             raise ValueError(f"min_snr must be positive, got {v}")
         return v
+
+    @model_validator(mode="after")
+    def validate_snr_band(self) -> "SourceSelectionConfig":
+        """Validate that ``max_snr``, when set, leaves a non-empty band.
+
+        Returns:
+            The validated configuration.
+
+        Raises:
+            ValueError: If ``max_snr`` is not above ``min_snr``.
+        """
+        if self.max_snr is not None and self.max_snr <= self.min_snr:
+            raise ValueError(
+                f"max_snr must be greater than min_snr, got "
+                f"max_snr={self.max_snr} <= min_snr={self.min_snr}"
+            )
+        return self
 
     @field_validator("max_sources")
     @classmethod
