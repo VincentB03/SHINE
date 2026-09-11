@@ -235,6 +235,13 @@ class EuclidInferenceConfig(BaseModel):
         learned_morphology: Optional AutoEncoder + Flow model replacing
             the parametric renderer on one stamp tier (default None,
             i.e. fully parametric, matching prior behavior).
+        psf_includes_pixel: Whether the PSF grid already contains the
+            pixel response (default True). An empirical PSF sampled at
+            the native 0.1"/px, like the Euclid VIS 21x21 grid, does, so
+            the parametric tiers draw with ``method="no_pixel"`` rather
+            than convolving by the pixel a second time. Set False to go
+            back to GalSim's ``"auto"``. The learned tier always uses
+            ``"no_pixel"``, the convention its AE was trained with.
         background: Background estimation strategy: "fit" estimates
             background jointly, "median" uses the median of the image,
             "fixed" uses a provided background map (default "median").
@@ -248,6 +255,7 @@ class EuclidInferenceConfig(BaseModel):
     inference: InferenceConfig = InferenceConfig()
     galaxy_stamp_sizes: List[int] = [64, 128, 256]
     learned_morphology: Optional[LearnedMorphologyConfig] = None
+    psf_includes_pixel: bool = True
     background: Literal["fit", "median", "fixed"] = "median"
     output_dir: str = "results/euclid"
 

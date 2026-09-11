@@ -64,6 +64,9 @@ inference:
   rng_seed: 42
 
 galaxy_stamp_sizes: [64, 128, 256]
+# The PSF grid is sampled at the native pixel scale, so it already contains
+# the pixel response: draw the parametric tiers with method="no_pixel".
+psf_includes_pixel: true
 
 # AE trained on 64x64 stamps @ 0.1"/px (matches Euclid VIS pixel_scale
 # above); flow trained on that exact AE's latents (the flow's own

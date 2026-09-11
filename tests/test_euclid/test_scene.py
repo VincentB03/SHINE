@@ -90,6 +90,76 @@ class TestMultiExposureModel:
 
 
 # ---------------------------------------------------------------------------
+# Stamp placement
+# ---------------------------------------------------------------------------
+
+
+class TestStampPlacement:
+    """Sources must be drawn at their catalog position, not at the
+    nearest pixel (nor half a pixel off on even stamps)."""
+
+    def test_offsets_point_back_to_the_position(self):
+        from shine.euclid.scene import stamp_placement
+
+        pos = np.array([[100.3, 200.7], [50.5, 60.49], [1000.0, 10.0]])
+        for stamp in (64, 65):
+            cx, cy, ox, oy = (np.asarray(a) for a in stamp_placement(pos, stamp, 2048, 2066))
+            centre = (stamp - 1) / 2
+            np.testing.assert_allclose(cx + centre + ox, pos[:, 0], atol=1e-4)
+            np.testing.assert_allclose(cy + centre + oy, pos[:, 1], atol=1e-4)
+            # Away from the edges the stamp is the plain rounded cutout.
+            np.testing.assert_array_equal(cx[:2], np.round(pos[:2, 0]).astype(int) - stamp // 2)
+            assert np.all(np.abs(ox[:2]) <= 1.0) and np.all(np.abs(oy[:2]) <= 1.0)
+
+    def test_edge_clipping_keeps_the_position(self):
+        from shine.euclid.scene import stamp_placement
+
+        pos = np.array([[10.2, 2060.8]])
+        cx, cy, ox, oy = (np.asarray(a) for a in stamp_placement(pos, 64, 2048, 2066))
+        assert cx[0] == 0 and cy[0] == 2066 - 64
+        np.testing.assert_allclose(cx + 31.5 + ox, pos[:, 0], atol=1e-4)
+        np.testing.assert_allclose(cy + 31.5 + oy, pos[:, 1], atol=1e-4)
+
+    def test_model_centroid_matches_catalog_position(self, exposure_set):
+        """Round, unsheared galaxies with dx = dy = 0 must be centred on
+        their catalog pixel positions (up to the PSF's own centroid)."""
+        from shine.euclid.scene import render_model_images, stamp_placement
+
+        n = exposure_set.n_sources
+        stamp_sizes = [64, 128, 256]
+        params = {
+            "g1": 0.0, "g2": 0.0,
+            "flux": np.full(n, 1000.0), "hlr": np.full(n, 0.2),
+            "e1": np.zeros(n), "e2": np.zeros(n),
+            "dx": np.zeros(n), "dy": np.zeros(n),
+        }
+        images = np.asarray(render_model_images(params, exposure_set, stamp_sizes=stamp_sizes))
+        tiers = np.asarray(exposure_set.source_stamp_tier)
+
+        checked = 0
+        for i in range(n):
+            if not bool(exposure_set.source_visible[i, 0]):
+                continue
+            ss = stamp_sizes[tiers[i]]
+            pos = np.asarray(exposure_set.pixel_positions[i, 0])
+            cx, cy = (int(a) for a in stamp_placement(
+                pos, ss, exposure_set.image_nx, exposure_set.image_ny)[:2])
+            stamp = images[0, cy:cy + ss, cx:cx + ss]
+            y, x = np.mgrid[0:ss, 0:ss]
+            got = np.array([(stamp * x).sum(), (stamp * y).sum()]) / stamp.sum()
+
+            psf = np.asarray(exposure_set.psf_images[i, 0])
+            py, px = np.mgrid[0:psf.shape[0], 0:psf.shape[1]]
+            psf_shift = np.array([(psf * px).sum(), (psf * py).sum()]) / psf.sum()
+            psf_shift -= (np.array(psf.shape[::-1]) - 1) / 2
+
+            expected = pos - np.array([cx, cy]) + psf_shift
+            np.testing.assert_allclose(got, expected, atol=0.05)
+            checked += 1
+        assert checked > 0
+
+
+# ---------------------------------------------------------------------------
 # Learned-morphology (AE + Flow) tier — gated on real checkpoints
 # ---------------------------------------------------------------------------
 

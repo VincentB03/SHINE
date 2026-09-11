@@ -66,5 +66,8 @@ inference:
   rng_seed: 42
 
 galaxy_stamp_sizes: [64, 128, 256]
+# The PSF grid is sampled at the native pixel scale, so it already contains
+# the pixel response: draw the parametric tiers with method="no_pixel".
+psf_includes_pixel: true
 background: fixed
 output_dir: results/euclid
